@@ -1,0 +1,51 @@
+import type { Context, Config } from "@netlify/functions";
+import { getStore } from "@netlify/blobs";
+
+export default async (req: Request, context: Context) => {
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  let body: { pin?: string; filename?: string; contentType?: string; dataBase64?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: "Invalid request body" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const requiredPin = Netlify.env.get("UPLOAD_PIN") || "";
+  if (!body.pin || body.pin !== requiredPin) {
+    return new Response(JSON.stringify({ ok: false, error: "Incorrect PIN" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  if (!body.dataBase64 || !body.filename) {
+    return new Response(JSON.stringify({ ok: false, error: "Missing file data" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const contentType = body.contentType || "image/jpeg";
+  const safeName = body.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const key = `${Date.now()}-${safeName}`;
+
+  const buffer = Buffer.from(body.dataBase64, "base64");
+
+  const store = getStore("slideshow-images");
+  await store.set(key, buffer, { metadata: { contentType } });
+
+  return new Response(JSON.stringify({ ok: true, key }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+};
+
+export const config: Config = {
+  path: "/api/upload",
+};
