@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Upload Photos</title>
+<style>
+  :root { --accent: #d4af6a; --bg: #111; --card: #1c1c1c; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 20px;
+    padding-bottom: 60px;
+  }
+  h1 {
+    font-weight: 300;
+    letter-spacing: 1px;
+    color: var(--accent);
+    font-size: 24px;
+    margin-bottom: 4px;
+  }
+  p.sub { color: #999; margin-top: 0; font-size: 14px; }
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: #aaa;
+    margin-bottom: 6px;
+  }
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #0d0d0d;
+    color: #eee;
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  input[type="file"] {
+    width: 100%;
+    color: #ccc;
+    margin-bottom: 12px;
+  }
+  button {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: #1a1a1a;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; }
+  button.secondary {
+    background: transparent;
+    border: 1px solid #444;
+    color: #ccc;
+    margin-top: 8px;
+  }
+  #status {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #ccc;
+    white-space: pre-line;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .thumb {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #000;
+  }
+  .thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .thumb .del {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    line-height: 26px;
+    text-align: center;
+    padding: 0;
+  }
+  a.slideshow-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <h1>Add Photos to the Slideshow</h1>
+  <p class="sub">Select photos from your camera roll. They'll appear in the slideshow automatically.</p>
+
+  <div class="card">
+    <label for="pin">PIN</label>
+    <input type="password" id="pin" inputmode="numeric" placeholder="Enter PIN" />
+
+    <label for="files">Photos</label>
+    <input type="file" id="files" accept="image/*" multiple />
+
+    <button id="uploadBtn">Upload</button>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <p class="sub" style="margin-bottom:8px;">Uploaded so far — tap the ✕ to remove one</p>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <p><a class="slideshow-link" href="/">&larr; Open the slideshow</a></p>
+
+<script>
+  const pinInput = document.getElementById('pin');
+  const filesInput = document.getElementById('files');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const statusEl = document.getElementById('status');
+  const grid = document.getElementById('grid');
+
+  const savedPin = localStorage.getItem('slideshowPin');
+  if (savedPin) pinInput.value = savedPin;
+
+  const MAX_DIMENSION = 1920;
+  const JPEG_QUALITY = 0.82;
+
+  function resizeImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (e) => { img.src = e.target.result; };
+      reader.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+          if (width > height) {
+            height = Math.round(height * (MAX_DIMENSION / width));
+            width = MAX_DIMENSION;
+          } else {
+            width = Math.round(width * (MAX_DIMENSION / height));
+            height = MAX_DIMENSION;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+        resolve(dataUrl.split(',')[1]);
+      };
+      img.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function loadGrid() {
+    try {
+      const res = await fetch('/api/images', { cache: 'no-store' });
+      const data = await res.json();
+      grid.innerHTML = '';
+      (data.images || []).forEach((img) => {
+        const div = document.createElement('div');
+        div.className = 'thumb';
+        div.innerHTML = '<img src="' + img.url + '" loading="lazy" /><button class="del" data-key="' + img.key + '">&times;</button>';
+        grid.appendChild(div);
+      });
+    } catch (e) {}
+  }
+
+  grid.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.del');
+    if (!btn) return;
+    const pin = pinInput.value.trim();
+    if (!pin) { alert('Enter the PIN first to delete photos.'); return; }
+    const key = btn.dataset.key;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pin, key }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        loadGrid();
+      } else {
+        alert(data.error || 'Could not delete photo');
+        btn.disabled = false;
+      }
+    } catch (err) {
+      alert('Network error deleting photo');
+      btn.disabled = false;
+    }
+  });
+
+  uploadBtn.addEventListener('click', async () => {
+    const pin = pinInput.value.trim();
+    const files = Array.from(filesInput.files || []);
+    if (!pin) { alert('Enter the PIN'); return; }
+    if (files.length === 0) { alert('Choose at least one photo'); return; }
+
+    localStorage.setItem('slideshowPin', pin);
+    uploadBtn.disabled = true;
+
+    let done = 0;
+    let failed = 0;
+    for (const file of files) {
+      statusEl.textContent = 'Uploading ' + (done + failed + 1) + ' of ' + files.length + '...';
+      try {
+        const base64 = await resizeImage(file);
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            pin,
+            filename: file.name || 'photo.jpg',
+            contentType: 'image/jpeg',
+            dataBase64: base64,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          done++;
+        } else {
+          failed++;
+          if (data.error === 'Incorrect PIN') {
+            statusEl.textContent = 'Incorrect PIN — stopped.';
+            uploadBtn.disabled = false;
+            return;
+          }
+        }
+      } catch (err) {
+        failed++;
+      }
+    }
+
+    statusEl.textContent = done + ' uploaded' + (failed ? ', ' + failed + ' failed' : '') + '.';
+    uploadBtn.disabled = false;
+    filesInput.value = '';
+    loadGrid();
+  });
+
+  loadGrid();
+</script>
+</body>
+</html>
