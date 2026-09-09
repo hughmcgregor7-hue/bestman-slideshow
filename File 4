@@ -1,0 +1,18 @@
+import type { Context, Config } from "@netlify/functions";
+import { getStore } from "@netlify/blobs";
+
+export default async (req: Request, context: Context) => {
+  const store = getStore("slideshow-images");
+  const { blobs } = await store.list();
+
+  const keys = blobs.map((b) => b.key).sort();
+
+  return new Response(JSON.stringify({ images: keys.map((k) => ({ key: k, url: `/image/${k}` })) }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+};
+
+export const config: Config = {
+  path: "/api/images",
+};
